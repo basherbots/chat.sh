@@ -1,8 +1,9 @@
 #!/bin/bash
 
-CONFIG_FILE="$HOME/.modelprompter"
-HISTORY_FILE="$HOME/.mp_history"
-TEMP_SCRIPT="/tmp/mp_temp_script.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/chat.config"
+HISTORY_FILE="$SCRIPT_DIR/chat.history"
+TEMP_SCRIPT="$SCRIPT_DIR/chat_temp_script.sh"
 SYSTEM_PROMPT=""
 
 # Function to display help instructions
@@ -86,7 +87,7 @@ clear_history() {
 archive_history() {
     if [ -f "$HISTORY_FILE" ]; then
         local timestamp=$(date +"%Y%m%d_%H%M%S")
-        local archive_file="$HOME/.mp_history_$timestamp"
+        local archive_file="$SCRIPT_DIR/chat_history_$timestamp.bak"
         mv "$HISTORY_FILE" "$archive_file"
         echo "Chat history archived to $archive_file"
     else
