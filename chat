@@ -3,25 +3,9 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/chat.config"
 HISTORY_FILE="$SCRIPT_DIR/chat.history"
-TEMP_SCRIPT="$SCRIPT_DIR/chat_temp_script.sh"
-SYSTEM_PROMPT=""
 
-# Function to display help instructions
-show_help() {
-    echo "Usage: $0 [OPTION] [\"INITIAL MESSAGE\"]"
-    echo "OpenRouter-based chatbot script."
-    echo
-    echo "Options:"
-    echo "  --help                 Display this help message"
-    echo "  --clear                Clear the chat history"
-    echo "  --archive              Archive the current chat history"
-    echo "  --system-prompt FILE   Set system prompt from a file"
-    echo "  --system-prompt-string \"PROMPT\"  Set system prompt from a string"
-    echo
-    echo "Without options, the script starts an interactive chat session."
-    echo "You can provide an initial message in quotes to start the chat with that message."
-    echo "In the chat session, type 'q' to quit."
-}
+# System prompt as a variable for easy editing
+SYSTEM_PROMPT="Respond using <bot>response goes here</bot> markup."
 
 # Function to load or prompt for configuration
 load_or_prompt_config() {
@@ -42,70 +26,34 @@ load_or_prompt_config() {
 
 # Function to send message to OpenRouter API
 send_message() {
-    local prompt="$1"
+    local messages="$1"
     local response=$(curl -s "https://openrouter.ai/api/v1/chat/completions" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $OPENROUTER_API_KEY" \
         -d '{
             "model": "'"$OPENROUTER_MODEL"'",
-            "messages": '"$prompt"'
+            "messages": '"$messages"'
         }')
     
-    echo "$response" | sed -n 's/.*"content":"\([^"]*\)".*/\1/p' | sed 's/\\n/\n/g'
+    echo "$response" | sed -n 's/.*<bot>\(.*\)<\/bot>.*/\1/p' | sed 's/\\n/\n/g'
 }
 
 # Function to update history
 update_history() {
     local role="$1"
     local content="$2"
-    local separator="$3"
-    history+="{\"role\":\"$role\",\"content\":\"$content\n$separator\"},"
-    echo "$history" > "$HISTORY_FILE"
-}
-
-# Function to display history
-display_history() {
-    if [ -f "$HISTORY_FILE" ]; then
-        local hist=$(cat "$HISTORY_FILE")
-        echo "$hist" | sed -e 's/^{//' -e 's/}$//' -e 's/},{/}\n{/g' | while IFS= read -r line; do
-            role=$(echo "$line" | sed -n 's/.*"role":"\([^"]*\)".*/\1/p')
-            content=$(echo "$line" | sed -n 's/.*"content":"\([^"]*\)".*/\1/p')
-            echo "$role: $content"
-        done
-    else
-        echo "No chat history found."
-    fi
+    echo "<$role>$content</$role>" >> "$HISTORY_FILE"
 }
 
 # Function to clear history
 clear_history() {
-    rm -f "$HISTORY_FILE"
-    echo "Chat history cleared."
-}
-
-# Function to archive history
-archive_history() {
     if [ -f "$HISTORY_FILE" ]; then
-        local timestamp=$(date +"%Y%m%d_%H%M%S")
-        local archive_file="$SCRIPT_DIR/chat_history_$timestamp.bak"
-        mv "$HISTORY_FILE" "$archive_file"
-        echo "Chat history archived to $archive_file"
+        rm "$HISTORY_FILE"
+        echo "Chat history cleared."
     else
-        echo "No chat history to archive."
+        echo "No chat history found."
     fi
-}
-
-# Function to extract and execute code from the response
-execute_code() {
-    local response="$1"
-    local script=$(echo "$response" | sed -n '/# START_SCRIPT/,/# END_SCRIPT/p' | sed '1d;$d')
-    
-    if [ -n "$script" ]; then
-        echo "$script" > "$TEMP_SCRIPT"
-        chmod +x "$TEMP_SCRIPT"
-        "$TEMP_SCRIPT"
-        rm "$TEMP_SCRIPT"
-    fi
+    exit 0
 }
 
 # Main chat function
@@ -119,85 +67,48 @@ chat() {
         history=""
     fi
 
-    # Prepare the messages for the API, including system prompt if set
+    # Prepare the messages for the API
     local messages="["
-    if [ -n "$SYSTEM_PROMPT" ]; then
-        messages+="{\"role\":\"system\",\"content\":\"$SYSTEM_PROMPT\"},"
-    fi
-    messages+="${history%,}"
+    messages+="{\"role\":\"system\",\"content\":\"$SYSTEM_PROMPT\"},"
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [[ $line =~ \<user\>(.*)\</user\> ]]; then
+            messages+="{\"role\":\"user\",\"content\":\"${BASH_REMATCH[1]}\"},"
+        elif [[ $line =~ \<bot\>(.*)\</bot\> ]]; then
+            messages+="{\"role\":\"assistant\",\"content\":\"${BASH_REMATCH[1]}\"},"
+        fi
+    done <<< "$history"
     messages+="{\"role\":\"user\",\"content\":\"$user_input\"}]"
 
     # Send message and get response
     local response=$(send_message "$messages")
-    echo "Assistant: $response"
-    echo "====="
-
-    # Execute any code in the response
-    execute_code "$response"
+    echo "$response"
 
     # Update history with user input and assistant's response
-    update_history "user" "$user_input" "-----"
-    update_history "assistant" "$response" "====="
+    update_history "user" "$user_input"
+    update_history "bot" "$response"
 }
 
 # Load or prompt for configuration
 load_or_prompt_config
 
-# Parse command-line arguments
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --help)
-            show_help
-            exit 0
-            ;;
-        --clear)
-            clear_history
-            exit 0
-            ;;
-        --archive)
-            archive_history
-            exit 0
-            ;;
-        --system-prompt)
-            if [ -f "$2" ]; then
-                SYSTEM_PROMPT=$(cat "$2")
-                shift 2
-            else
-                echo "Error: System prompt file not found."
-                exit 1
-            fi
-            ;;
-        --system-prompt-string)
-            SYSTEM_PROMPT="$2"
-            shift 2
-            ;;
-        *)
-            if [ -z "$initial_message" ]; then
-                initial_message="$1"
-            else
-                initial_message="$initial_message $1"
-            fi
-            shift
-            ;;
-    esac
-done
-
-# Display existing history
-echo "Existing chat history:"
-display_history
-echo "---"
-
-# If there's an initial message, process it
-if [ -n "$initial_message" ]; then
-    chat "$initial_message"
+# Check for --clear flag
+if [ "$1" = "--clear" ]; then
+    clear_history
 fi
 
-# Main loop
-while true; do
-    read -p "You: " user_input
-    if [ "$user_input" = "q" ]; then
-        echo "Goodbye!"
-        break
-    fi
-    chat "$user_input"
-done
+# Run chat function with input from command line or pipe
+if [ -p /dev/stdin ]; then
+    # Input is coming from a pipe
+    user_input=$(cat)
+else
+    # Input is coming from command line argument
+    user_input="$1"
+fi
+
+if [ -z "$user_input" ]; then
+    echo "Usage: $0 [--clear] \"Your message here\""
+    echo "       echo \"Your message here\" | $0"
+    exit 1
+fi
+
+chat "$user_input"
