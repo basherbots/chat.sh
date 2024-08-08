@@ -5,7 +5,7 @@ CONFIG_FILE="$SCRIPT_DIR/chat.config"
 HISTORY_FILE="$SCRIPT_DIR/chat.history"
 
 # System prompt as a variable for easy editing
-SYSTEM_PROMPT="Respond using <bot>response goes here</bot> markup."
+SYSTEM_PROMPT="You are in a Linux Terminal. ALWAYS respond using <bot>response goes here</bot> markup. You MUST ALWAYS include executable bash scripts within <bash>bash script here</bash> tags. NEVER use backticks for code, ALWAYS use <bash> tags as these will be parsed out and executed. When asked to create files etc, assume the current directory. Always escape quotes since you're in a terminal. REMEMBER: YOU MUST ALWAYS OUTPUT THE ACTUAL CODE IN <bash> TAGS, NOT JUST DESCRIBE IT. The content may be | piped...DO NOT output any extra content like 'Done!' or 'Ok' if there is code, just output the tags with the code so it can run."
 
 # Function to load or prompt for configuration
 load_or_prompt_config() {
@@ -14,12 +14,12 @@ load_or_prompt_config() {
     fi
 
     if [ -z "$OPENROUTER_API_KEY" ]; then
-        read -p "Enter your OpenRouter API key: " OPENROUTER_API_KEY
+        read -p "Enter your OpenRouter API key: " OPENROUTER_API_KEY >&2
         echo "OPENROUTER_API_KEY='$OPENROUTER_API_KEY'" >> "$CONFIG_FILE"
     fi
 
     if [ -z "$OPENROUTER_MODEL" ]; then
-        read -p "Enter the OpenRouter model (e.g., openai/gpt-3.5-turbo): " OPENROUTER_MODEL
+        read -p "Enter the OpenRouter model (e.g., openai/gpt-3.5-turbo): " OPENROUTER_MODEL >&2
         echo "OPENROUTER_MODEL='$OPENROUTER_MODEL'" >> "$CONFIG_FILE"
     fi
 }
@@ -49,11 +49,22 @@ update_history() {
 clear_history() {
     if [ -f "$HISTORY_FILE" ]; then
         rm "$HISTORY_FILE"
-        echo "Chat history cleared."
+        echo "Chat history cleared." >&2
     else
-        echo "No chat history found."
+        echo "No chat history found." >&2
     fi
     exit 0
+}
+
+# Function to execute bash scripts found in the response
+execute_bash_scripts() {
+    local response="$1"
+    while IFS= read -r line || [ -n "$line" ]; do
+        if [[ $line =~ \<bash\>(.*)\</bash\> ]]; then
+            local script="${BASH_REMATCH[1]}"
+            eval "$script" >/dev/null 2>&1
+        fi
+    done <<< "$response"
 }
 
 # Main chat function
@@ -83,6 +94,9 @@ chat() {
     local response=$(send_message "$messages")
     echo "$response"
 
+    # Execute any bash scripts found in the response
+    execute_bash_scripts "$response"
+
     # Update history with user input and assistant's response
     update_history "user" "$user_input"
     update_history "bot" "$response"
@@ -106,8 +120,8 @@ else
 fi
 
 if [ -z "$user_input" ]; then
-    echo "Usage: $0 [--clear] \"Your message here\""
-    echo "       echo \"Your message here\" | $0"
+    echo "Usage: $0 [--clear] \"Your message here\"" >&2
+    echo "       echo \"Your message here\" | $0" >&2
     exit 1
 fi
 
