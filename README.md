@@ -1,6 +1,6 @@
-# Coming soon
+# ./chat.sh - No dependency OpenRouter chatbot
 
-It works just need to document 😀
+> Connect your 
 
 ```bash
 # Simple prompt. This will get added to the current history

@@ -3,6 +3,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/chat.config"
 HISTORY_FILE="$SCRIPT_DIR/chat.history"
+LOG_FILE="$SCRIPT_DIR/chat.logs"
 
 # System prompt as a variable for easy editing
 SYSTEM_PROMPT="You are in a Linux Terminal. ALWAYS respond using <bot>response goes here</bot> markup. You MUST ALWAYS include executable bash scripts within <bash>bash script here</bash> tags. NEVER use backticks for code, ALWAYS use <bash> tags as these will be parsed out and executed. When asked to create files etc, assume the current directory. Always escape quotes since you're in a terminal. REMEMBER: YOU MUST ALWAYS OUTPUT THE ACTUAL CODE IN <bash> TAGS, NOT JUST DESCRIBE IT. The content may be | piped...DO NOT output any extra content like 'Done!' or 'Ok' if there is code, just output the tags with the code so it can run."
@@ -45,15 +46,27 @@ update_history() {
     echo "<$role>$content</$role>" >> "$HISTORY_FILE"
 }
 
-# Function to clear history
-clear_history() {
+# Function to update logs
+update_logs() {
+    local role="$1"
+    local content="$2"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] <$role>$content</$role>" >> "$LOG_FILE"
+}
+
+# Function to clear history and logs
+clear_history_and_logs() {
     if [ -f "$HISTORY_FILE" ]; then
         rm "$HISTORY_FILE"
         echo "Chat history cleared." >&2
     else
         echo "No chat history found." >&2
     fi
-    exit 0
+    if [ -f "$LOG_FILE" ]; then
+        rm "$LOG_FILE"
+        echo "Chat logs cleared." >&2
+    else
+        echo "No chat logs found." >&2
+    fi
 }
 
 # Function to execute bash scripts found in the response
@@ -100,14 +113,18 @@ chat() {
     # Update history with user input and assistant's response
     update_history "user" "$user_input"
     update_history "bot" "$response"
+
+    # Update logs with user input and assistant's response
+    update_logs "user" "$user_input"
+    update_logs "bot" "$response"
 }
 
 # Load or prompt for configuration
 load_or_prompt_config
 
 # Check for --clear flag
-if [ "$1" = "--clear" ]; then
-    clear_history
+if [[ "$*" == *"--clear"* ]]; then
+    clear_history_and_logs
 fi
 
 # Run chat function with input from command line or pipe
@@ -116,7 +133,10 @@ if [ -p /dev/stdin ]; then
     user_input=$(cat)
 else
     # Input is coming from command line argument
-    user_input="$1"
+    user_input="$*"
+    user_input="${user_input/--clear/}"  # Remove --clear flag if present
+    user_input="${user_input#"${user_input%%[![:space:]]*}"}"  # Trim leading spaces
+    user_input="${user_input%"${user_input##*[![:space:]]}"}"  # Trim trailing spaces
 fi
 
 if [ -z "$user_input" ]; then
