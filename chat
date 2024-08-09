@@ -6,7 +6,7 @@ HISTORY_FILE="$SCRIPT_DIR/chat.history"
 LOG_FILE="$SCRIPT_DIR/chat.logs"
 
 # System prompt as a variable for easy editing
-SYSTEM_PROMPT="You are in a Linux Terminal. ALWAYS respond using <bot>response goes here</bot> markup. You MUST ALWAYS include executable bash scripts within <bash>bash script here</bash> tags. NEVER use backticks for code, ALWAYS use <bash> tags as these will be parsed out and executed. When asked to create files etc, assume the current directory. Always escape quotes since you're in a terminal. REMEMBER: YOU MUST ALWAYS OUTPUT THE ACTUAL CODE IN <bash> TAGS, NOT JUST DESCRIBE IT. The content may be | piped...DO NOT output any extra content like 'Done!' or 'Ok' if there is code, just output the tags with the code so it can run."
+SYSTEM_PROMPT="You are now embodied in a dependency-less Bash script spawned from `./chat`. CAPS are not shouting but to simplify things :) ALWAYS respond using <bot>your response goes here</bot> markup. This will make parsing out your response super easy. PLEASE ALWAYS include executable bash scripts within <bash>bash script here</bash> tags. NEVER EVER use backticks for code, ALWAYS use <bash></bash> tags. The bash tags will be parsed out by `./chat` and executed with the current users permissions. When asked to create files etc, assume the current directory. ALWAYS escape quotes etc since you're in a terminal. Your output will be used as the script output, which can then be piped. BE CAREFUL with running `./chat` as that will spawn another instance of you. The content may be | piped...DO NOT output any extra content like 'Done!' or 'Ok' if there is code, just output the tags with the code so it can run. REMEMBER: Whatever you output will be used as the `./chat` output so be verbose only when required for planning or chatting, etc."
 
 # Function to load or prompt for configuration
 load_or_prompt_config() {
@@ -28,15 +28,16 @@ load_or_prompt_config() {
 # Function to send message to OpenRouter API
 send_message() {
     local messages="$1"
+    local model="$2"
     local response=$(curl -s "https://openrouter.ai/api/v1/chat/completions" \
         -H "Content-Type: application/json" \
         -H "Authorization: Bearer $OPENROUTER_API_KEY" \
         -d '{
-            "model": "'"$OPENROUTER_MODEL"'",
+            "model": "'"$model"'",
             "messages": '"$messages"'
         }')
     
-    echo "$response" | sed -n 's/.*<bot>\(.*\)<\/bot>.*/\1/p' | sed 's/\\n/\n/g'
+    echo "$response"
 }
 
 # Function to update history
@@ -48,9 +49,8 @@ update_history() {
 
 # Function to update logs
 update_logs() {
-    local role="$1"
-    local content="$2"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] <$role>$content</$role>" >> "$LOG_FILE"
+    local content="$1"
+    echo "$content" >> "$LOG_FILE"
 }
 
 # Function to clear history and logs
@@ -83,6 +83,7 @@ execute_bash_scripts() {
 # Main chat function
 chat() {
     local user_input="$1"
+    local model="$2"
     
     # Load history if exists
     if [ -f "$HISTORY_FILE" ]; then
@@ -93,38 +94,71 @@ chat() {
 
     # Prepare the messages for the API
     local messages="["
-    messages+="{\"role\":\"system\",\"content\":\"$SYSTEM_PROMPT\"},"
+    messages+="{\"role\":\"system\",\"content\":\"<system>$SYSTEM_PROMPT</system>\"},"
     while IFS= read -r line || [ -n "$line" ]; do
         if [[ $line =~ \<user\>(.*)\</user\> ]]; then
-            messages+="{\"role\":\"user\",\"content\":\"${BASH_REMATCH[1]}\"},"
+            messages+="{\"role\":\"user\",\"content\":\"<user>${BASH_REMATCH[1]}</user>\"},"
         elif [[ $line =~ \<bot\>(.*)\</bot\> ]]; then
-            messages+="{\"role\":\"assistant\",\"content\":\"${BASH_REMATCH[1]}\"},"
+            messages+="{\"role\":\"assistant\",\"content\":\"<bot>${BASH_REMATCH[1]}</bot>\"},"
         fi
     done <<< "$history"
-    messages+="{\"role\":\"user\",\"content\":\"$user_input\"}]"
+    messages+="{\"role\":\"user\",\"content\":\"<user>$user_input</user>\"}]"
 
     # Send message and get response
-    local response=$(send_message "$messages")
-    echo "$response"
+    local full_response=$(send_message "$messages" "$model")
+    
+    # Log the raw server response
+    update_logs "$full_response"
+
+    # Extract the bot's response from the full server response
+    local bot_response=$(echo "$full_response" | sed -n 's/.*<bot>\(.*\)<\/bot>.*/\1/p' | sed 's/\\n/\n/g')
+    
+    # If bot_response is empty, extract content without <bot> tags
+    if [ -z "$bot_response" ]; then
+        bot_response=$(echo "$full_response" | jq -r '.choices[0].message.content' | sed 's/\\n/\n/g')
+    fi
+    
+    # Output the response without <bot> tags
+    echo "$bot_response"
 
     # Execute any bash scripts found in the response
-    execute_bash_scripts "$response"
+    execute_bash_scripts "$bot_response"
 
     # Update history with user input and assistant's response
     update_history "user" "$user_input"
-    update_history "bot" "$response"
-
-    # Update logs with user input and assistant's response
-    update_logs "user" "$user_input"
-    update_logs "bot" "$response"
+    update_history "bot" "$bot_response"
 }
 
 # Load or prompt for configuration
 load_or_prompt_config
 
+# Initialize variables
+clear_flag=false
+model="$OPENROUTER_MODEL"
+user_input=""
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --clear)
+            clear_flag=true
+            shift
+            ;;
+        --model)
+            model="$2"
+            shift 2
+            ;;
+        *)
+            user_input+=" $1"
+            shift
+            ;;
+    esac
+done
+
 # Check for --clear flag
-if [[ "$*" == *"--clear"* ]]; then
+if $clear_flag; then
     clear_history_and_logs
+    exit 0
 fi
 
 # Run chat function with input from command line or pipe
@@ -132,17 +166,15 @@ if [ -p /dev/stdin ]; then
     # Input is coming from a pipe
     user_input=$(cat)
 else
-    # Input is coming from command line argument
-    user_input="$*"
-    user_input="${user_input/--clear/}"  # Remove --clear flag if present
-    user_input="${user_input#"${user_input%%[![:space:]]*}"}"  # Trim leading spaces
-    user_input="${user_input%"${user_input##*[![:space:]]}"}"  # Trim trailing spaces
+    # Trim leading and trailing spaces from user input
+    user_input="${user_input#"${user_input%%[![:space:]]*}"}"
+    user_input="${user_input%"${user_input##*[![:space:]]}"}"
 fi
 
 if [ -z "$user_input" ]; then
-    echo "Usage: $0 [--clear] \"Your message here\"" >&2
-    echo "       echo \"Your message here\" | $0" >&2
+    echo "Usage: $0 [--clear] [--model MODEL] \"Your message here\"" >&2
+    echo "       echo \"Your message here\" | $0 [--clear] [--model MODEL]" >&2
     exit 1
 fi
 
-chat "$user_input"
+chat "$user_input" "$model"
