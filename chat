@@ -84,6 +84,8 @@ execute_bash_scripts() {
             bash_script=""
         elif [[ $line == *"</bash>"* ]]; then
             in_bash=false
+            # Unescape quotes before execution for all bash commands
+            bash_script=$(echo "$bash_script" | sed 's/\\"/"/g')
             eval "$bash_script"
         elif $in_bash; then
             bash_script+="$line"$'\n'

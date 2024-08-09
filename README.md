@@ -1,189 +1,118 @@
-#!/bin/bash
+# chat.sh - No dependency OpenRouter chatbot
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/chat.config"
-HISTORY_FILE="$SCRIPT_DIR/chat.history"
-LOG_FILE="$SCRIPT_DIR/chat.logs"
+> `./chat "Imagine if you could" && ./do $ANYTHING`
 
-# System prompt as a variable for easy editing
-SYSTEM_PROMPT="You are in a Linux Terminal. ALWAYS respond using <bot>response goes here</bot> markup. You MUST ALWAYS include executable bash scripts within <bash>bash script here</bash> tags. NEVER use backticks for code, ALWAYS use <bash> tags as these will be parsed out and executed. When asked to create files etc, assume the current directory. Always escape quotes since you're in a terminal. REMEMBER: YOU MUST ALWAYS OUTPUT THE ACTUAL CODE IN <bash> TAGS, NOT JUST DESCRIBE IT. The content may be | piped...DO NOT output any extra content like 'Done!' or 'Ok' if there is code, just output the tags with the code so it can run."
+A simple, powerful bash script for interacting with AI models through the OpenRouter API. No dependencies required beyond a standard bash environment and curl.
 
-# Function to load or prompt for configuration
-load_or_prompt_config() {
-    if [ -f "$CONFIG_FILE" ]; then
-        source "$CONFIG_FILE"
-    fi
+## Prerequisites
 
-    if [ -z "$OPENROUTER_API_KEY" ]; then
-        read -p "Enter your OpenRouter API key: " OPENROUTER_API_KEY >&2
-        echo "OPENROUTER_API_KEY='$OPENROUTER_API_KEY'" >> "$CONFIG_FILE"
-    fi
+- An OpenRouter API Key (free models are available): https://openrouter.ai/models
+- `bash` and `curl` (typically pre-installed on most Unix-like systems)
 
-    if [ -z "$OPENROUTER_MODEL" ]; then
-        read -p "Enter the OpenRouter model (e.g., openai/gpt-3.5-turbo): " OPENROUTER_MODEL >&2
-        echo "OPENROUTER_MODEL='$OPENROUTER_MODEL'" >> "$CONFIG_FILE"
-    fi
-}
+## Quick Start
 
-# Function to send message to OpenRouter API
-send_message() {
-    local messages="$1"
-    local model="$2"
-    local response=$(curl -s "https://openrouter.ai/api/v1/chat/completions" \
-        -H "Content-Type: application/json" \
-        -H "Authorization: Bearer $OPENROUTER_API_KEY" \
-        -d '{
-            "model": "'"$model"'",
-            "messages": '"$messages"'
-        }')
-    
-    echo "$response"
-}
+1. Download the script:
+   ```bash
+   curl -O https://raw.githubusercontent.com/yourusername/chat.sh/main/chat.sh
+   chmod +x chat.sh
+   ```
 
-# Function to update history
-update_history() {
-    local role="$1"
-    local content="$2"
-    echo "<$role>$content</$role>" >> "$HISTORY_FILE"
-}
+2. Run it once to configure the API key and default model:
+   ```bash
+   ./chat.sh
+   ```
 
-# Function to update logs
-update_logs() {
-    local content="$1"
-    echo "$content" >> "$LOG_FILE"
-}
+3. Start chatting!
+   ```bash
+   ./chat.sh "Hello, what can you do?"
+   ```
 
-# Function to clear history and logs
-clear_history_and_logs() {
-    if [ -f "$HISTORY_FILE" ]; then
-        rm "$HISTORY_FILE"
-        echo "Chat history cleared." >&2
-    else
-        echo "No chat history found." >&2
-    fi
-    if [ -f "$LOG_FILE" ]; then
-        rm "$LOG_FILE"
-        echo "Chat logs cleared." >&2
-    else
-        echo "No chat logs found." >&2
-    fi
-}
+## Usage
 
-# Function to execute bash scripts found in the response
-execute_bash_scripts() {
-    local response="$1"
-    echo "$response"  # Output the entire response
-    
-    # Extract and execute all bash scripts
-    while read -r line; do
-        if [[ $line == *"<bash>"* ]]; then
-            local script=$(echo "$line" | sed -n 's/.*<bash>\(.*\)<\/bash>.*/\1/p')
-            echo "Executing: $script"
-            eval "$script"
-        elif [[ $line != *"<bot>"* && $line != *"</bot>"* ]]; then
-            echo "$line"
-        fi
-    done <<< "$response"
-}
+```bash
+# Simple prompt (adds to current history)
+./chat.sh "your prompt"
 
-# Main chat function
-chat() {
-    local user_input="$1"
-    local model="$2"
-    
-    # Check if input is coming from a pipe
-    if [ -p /dev/stdin ]; then
-        local piped_input=$(cat)
-        user_input="Context: $piped_input\n\nTask: $user_input"
-    fi
-    
-    # Load history if exists
-    if [ -f "$HISTORY_FILE" ]; then
-        history=$(cat "$HISTORY_FILE")
-    else
-        history=""
-    fi
+# Clear the history
+./chat.sh --clear
 
-    # Prepare the messages for the API
-    local messages="["
-    messages+="{\"role\":\"system\",\"content\":\"$SYSTEM_PROMPT\"},"
-    while IFS= read -r line || [ -n "$line" ]; do
-        if [[ $line =~ \<user\>(.*)\</user\> ]]; then
-            messages+="{\"role\":\"user\",\"content\":\"${BASH_REMATCH[1]}\"},"
-        elif [[ $line =~ \<bot\>(.*)\</bot\> ]]; then
-            messages+="{\"role\":\"assistant\",\"content\":\"${BASH_REMATCH[1]}\"},"
-        fi
-    done <<< "$history"
-    messages+="{\"role\":\"user\",\"content\":\"$user_input\"}]"
+# Use a specific model for this chat only
+./chat.sh "your prompt" --model "model/slug"
+```
 
-    # Send message and get response
-    local full_response=$(send_message "$messages" "$model")
-    
-    # Log the raw server response
-    update_logs "$full_response"
+## Notes
 
-    # Extract the bot's response from the full server response
-    local bot_response=$(echo "$full_response" | sed -n 's/.*<bot>\(.*\)<\/bot>.*/\1/p' | sed 's/\\n/\n/g')
-    
-    # If bot_response is empty, extract content without <bot> tags
-    if [ -z "$bot_response" ]; then
-        bot_response=$(echo "$full_response" | jq -r '.choices[0].message.content' | sed 's/\\n/\n/g')
-    fi
-    
-    # Execute any bash scripts found in the response and output other content
-    execute_bash_scripts "$bot_response"
+- `chat.config`, `chat.history`, and `chat.logs` are created in each directory where the script is run.
+- When specifying a model, use the full OpenRouter slug, e.g., `meta-llama/llama-3.1-405b`.
 
-    # Update history with user input and assistant's response
-    update_history "user" "$user_input"
-    update_history "bot" "$bot_response"
-}
+## Examples
 
-# Load or prompt for configuration
-load_or_prompt_config
+### Basic Usage
 
-# Initialize variables
-clear_flag=false
-model="$OPENROUTER_MODEL"
-user_input=""
+```bash
+# Simple chat
+./chat.sh "Hello! What can you do?"
 
-# Parse command line arguments
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --clear)
-            clear_flag=true
-            shift
-            ;;
-        --model)
-            model="$2"
-            shift 2
-            ;;
-        *)
-            user_input+=" $1"
-            shift
-            ;;
-    esac
-done
+# Create and run scripts
+./chat.sh "Write a bash script that lists all .txt files in the current directory"
+```
 
-# Check for --clear flag
-if $clear_flag; then
-    clear_history_and_logs
-    exit 0
-fi
+### Advanced Usage
 
-# Run chat function with input from command line or pipe
-if [ -p /dev/stdin ]; then
-    # Input is coming from a pipe
-    user_input=$(cat)
-else
-    # Trim leading and trailing spaces from user input
-    user_input="${user_input#"${user_input%%[![:space:]]*}"}"
-    user_input="${user_input%"${user_input##*[![:space:]]}"}"
-fi
+```bash
+# Generate a Python script and then explain it
+./chat.sh "Write a Python script that calculates the Fibonacci sequence" | ./chat.sh "Explain this Python code"
 
-if [ -z "$user_input" ]; then
-    echo "Usage: $0 [--clear] [--model MODEL] \"Your message here\"" >&2
-    echo "       echo \"Your message here\" | $0 [--clear] [--model MODEL]" >&2
-    exit 1
-fi
+# Generate a bash command and execute it (use with caution!)
+./chat.sh "Give me a bash command to list all .txt files" | bash
 
-chat "$user_input" "$model"
+# Use different models in a pipeline
+./chat.sh "Write a short story about a robot" --model "anthropic/claude-3-opus-20240229" | 
+./chat.sh "Summarize this story in one sentence" --model "openai/gpt-3.5-turbo"
+
+# Generate and analyze code
+./chat.sh "Write a simple Java class for a bank account" | 
+./chat.sh "Analyze this Java code for potential improvements"
+
+# Multi-step task: Generate, translate, and summarize
+./chat.sh "Write a short story about AI" | 
+./chat.sh "Translate this to French" | 
+./chat.sh "Summarize this French text in English"
+```
+
+### Integration with Unix tools
+
+```bash
+# Save output to a file
+./chat.sh "Write a short report on climate change" > climate_report.txt
+
+# Count words in generated content
+./chat.sh "Write a poem about technology" | wc -w
+
+# Process file contents
+cat complicated_code.py | ./chat.sh "Explain this Python code and suggest optimizations"
+
+# Data analysis
+cat large_dataset.csv | ./chat.sh "Analyze this CSV data and provide insights"
+```
+
+## Potential Use Cases
+
+1. Code generation and review
+2. Natural language processing of logs or system outputs
+3. Interactive documentation generation
+4. AI-assisted system administration
+5. On-the-fly content translation and summarization
+6. Data analysis and report generation
+
+## Security Note
+
+Always review generated code or commands before execution, especially when piping directly to bash or other interpreters. This script is powerful but should be used responsibly.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+[MIT License](LICENSE)
