@@ -71,33 +71,27 @@ clear_history_and_logs() {
 
 # Function to execute bash scripts found in the response
 execute_bash_scripts() {
-    local response="$1"
-    local is_piped="$2"
-    
-    if [ "$is_piped" = true ]; then
-        # If piped, only output the content of bash tags
-        echo "$response" | sed -n '/<bash>/,/<\/bash>/p' | sed 's/<bash>//g; s/<\/bash>//g'
-    else
-        echo "$response"  # Output the entire response
-        
-        # Extract and execute all bash scripts
-        local in_bash=false
-        local bash_script=""
+  local response="$1"
+  local original_response="$response"  # Store the original response
+  local in_bash=false
+  local bash_script=""
 
-        while IFS= read -r line; do
-            if [[ $line == *"<bash>"* ]]; then
-                in_bash=true
-                bash_script=""
-            elif [[ $line == *"</bash>"* ]]; then
-                in_bash=false
-                # Unescape quotes before execution for all bash commands
-                bash_script=$(echo "$bash_script" | sed 's/\\"/"/g')
-                eval "$bash_script"
-            elif $in_bash; then
-                bash_script+="$line"$'\n'
-            fi
-        done <<< "$response"
+  while IFS= read -r line; do
+    if [[ $line == *"<bash>"* ]]; then
+      in_bash=true
+      bash_script=""
+    elif [[ $line == *"</bash>"* ]]; then
+      in_bash=false
+      # Unescape quotes before execution for all bash commands
+      bash_script=$(echo "$bash_script" | sed 's/\\"/"/g')
+      eval "$bash_script"
+    elif $in_bash; then
+      bash_script+="$line"$'\n'
     fi
+  done <<< "$response"
+
+  # Output the remaining content after processing bash scripts
+  echo "$original_response"
 }
 
 # Main chat function
