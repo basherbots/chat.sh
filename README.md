@@ -96,6 +96,18 @@ cat complicated_code.py | ./chat.sh "Explain this Python code and suggest optimi
 cat large_dataset.csv | ./chat.sh "Analyze this CSV data and provide insights"
 ```
 
+## Additional Commands
+```bash
+# Get latest subreddit post title
+# param1 (optional) the full subreddit URL
+./reddit/sub/post/title/latest/get "https://reddit.com/r/TARGET_SUBREDDIT"
+
+# Poll for the latest change every 5-10min (variable)
+# param1 (optional) the full subreddit URL
+# OUTPUTS: "MATCH" if the titles are the same, "NEW" if they are different 
+./reddit/sub/post/title/latest/poll "https://reddit.com/r/TARGET_SUBREDDIT"
+```
+
 ## Potential Use Cases
 
 1. Code generation and review

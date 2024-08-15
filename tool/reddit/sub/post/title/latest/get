@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# Set the default RSS feed URL
+default_feed_url="https://www.reddit.com/r/subofoz.rss" 
+
+# Use the default if no parameter is provided, otherwise use the provided one
+feed_url="${1:-$default_feed_url}" 
+
+# Fetch the RSS feed content
+feed_content=$(curl -s "$feed_url") 
+
+# Find the first <entry> tag and extract everything until </entry>
+first_entry=$(echo "$feed_content" | grep -m 1 -o '<entry>.*</entry>')
+
+# Extract the title from the first entry
+if echo "$first_entry" | grep -q '<title>'; then  # Check if <title> exists
+    latest_title=$(echo "$first_entry" | grep -o '<title>.*</title>' | cut -d '>' -f 2 | cut -d '<' -f 1)
+    echo "$latest_title"  # Output only the title
+fi

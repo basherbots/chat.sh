@@ -1,0 +1,98 @@
+#!/bin/bash
+
+# Default values
+DEFAULT_RSS_URL="https://www.reddit.com/r/subofoz.rss"
+DEFAULT_MEM_FILE="./tool/reddit/sub/post/title/latest/mem"
+DEFAULT_SECONDS=300  # 5 minutes
+DEFAULT_VARIABILITY=300
+
+# Function to display help information
+show_help() {
+    echo "Usage: $0 [RSS_URL] [OPTIONS]"
+    echo "  RSS_URL: The URL of the RSS feed to monitor (optional, defaults to $DEFAULT_RSS_URL)"
+    echo "  OPTIONS:"
+    echo "    --mem <path>: Path to the memory file (optional, defaults to $DEFAULT_MEM_FILE)"
+    echo "    --seconds <number>: Number of seconds to wait between checks (optional, defaults to $DEFAULT_SECONDS)"
+    echo "    --variability <number>: Variability in seconds added/subtracted from the wait time (optional, defaults to $DEFAULT_VARIABILITY)"
+    echo "    --help: Display this help message"
+}
+
+# Parse command-line arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --mem)
+            MEM_FILE="$2"
+            shift 2
+            ;;
+        --seconds)
+            SECONDS="$2"
+            shift 2
+            ;;
+        --variability)
+            VARIABILITY="$2"
+            shift 2
+            ;;
+        --help)
+            show_help
+            exit 0
+            ;;
+        *)
+            if [ -z "$RSS_URL" ]; then
+                RSS_URL="$1"
+            else
+                shift  # Ignore unrecognized arguments after RSS_URL
+            fi
+            ;;
+    esac
+done
+
+# Use default values if flags were not provided
+RSS_URL="${RSS_URL:-$DEFAULT_RSS_URL}"
+MEM_FILE="${MEM_FILE:-$DEFAULT_MEM_FILE}"
+SECONDS="${SECONDS:-$DEFAULT_SECONDS}"
+VARIABILITY="${VARIABILITY:-$DEFAULT_VARIABILITY}"
+
+# Path to the new command
+SCRIPT_TO_RUN="./get"  # Assuming it's in the same directory
+
+# Or, if it's in a different location relative to the project root:
+# SCRIPT_TO_RUN="./tool/reddit/sub/post/title/latest/get" 
+
+# Function to get the second title from RSS feed
+get_latest_title() {
+    curl -s "$RSS_URL" | grep -oPm2 "(?<=<title>)[^<]+" | tail -n 1 
+}
+
+# Create the MEM_FILE with execute permissions if it doesn't exist
+if [ ! -f "$MEM_FILE" ]; then
+    touch "$MEM_FILE"
+    chmod +x "$MEM_FILE"
+fi
+
+# Loop with Ctrl+C handling
+trap 'echo "Exiting..."; exit 0' SIGINT
+
+while true; do
+    # Get the latest title from the RSS feed
+    LATEST_TITLE=$(get_latest_title)
+
+    # Read the previous title from the MEM_FILE if it exists
+    if [ -f "$MEM_FILE" ]; then
+        PREVIOUS_TITLE=$(cat "$MEM_FILE")
+    else
+        PREVIOUS_TITLE=""
+    fi
+
+    # Compare and emit the appropriate message
+    if [ "$LATEST_TITLE" = "$PREVIOUS_TITLE" ]; then
+        echo "MATCH"
+    else
+        echo "NEW"
+        echo "$LATEST_TITLE" > "$MEM_FILE"
+        PREVIOUS_TITLE="$LATEST_TITLE" 
+    fi
+
+    # Calculate random sleep duration with variability
+    sleep_duration=$((SECONDS + RANDOM % (2 * VARIABILITY + 1) - VARIABILITY))
+    sleep "$sleep_duration"
+done
