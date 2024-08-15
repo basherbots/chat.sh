@@ -1,0 +1,26 @@
+#!/bin/bash
+
+# Path to the polling script
+POLLING_SCRIPT="../poll"
+
+# Function to display a Termux notification
+show_notification() {
+    title="$1"
+    message="$2"
+    termux-notification --title "$title" --content "$message"
+}
+
+# Run the polling script and capture its output
+while output=$("$POLLING_SCRIPT"); do
+    # Check if the output indicates a new post
+    if [[ "$output" == "NEW" ]]; then
+        # Extract the new title from the polling script's output
+        new_title=$(tail -n 1 "$MEM_FILE")  # Assuming the last line of MEM_FILE contains the new title
+
+        # Display the notification
+        show_notification "New Reddit Post" "$new_title"
+    fi
+
+    # Optional: Add a short delay to avoid overwhelming the notification system
+    sleep 1 
+done
